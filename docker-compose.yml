@@ -1,0 +1,139 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: cipher-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - cipher-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  milvus:
+    image: milvusdb/milvus:v2.3.3
+    container_name: cipher-milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    networks:
+      - cipher-network
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+    depends_on:
+      - etcd
+      - minio
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: cipher-etcd
+    volumes:
+      - etcd_data:/etcd
+    networks:
+      - cipher-network
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command:
+      - etcd
+      - --data-dir=/etcd
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-cluster=default=http://etcd:2380
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2023-11-15T20-43-25Z
+    container_name: cipher-minio
+    volumes:
+      - minio_data:/data
+    networks:
+      - cipher-network
+    environment:
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    command: minio server /data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cipher-backend
+    ports:
+      - "8000:8000"
+      - "9998:9998"
+    volumes:
+      - ./backend:/app
+      - cipher_data:/app/data
+    networks:
+      - cipher-network
+    depends_on:
+      - mongodb
+      - milvus
+    restart: unless-stopped
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - MONGODB_DB=cipher_db
+      - TIKA_SERVER_URL=http://localhost:9998
+      - MILVUS_URI=http://milvus:19530
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cipher-frontend
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/app
+    networks:
+      - cipher-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  cipher-network:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  milvus_data:
+  etcd_data:
+  minio_data:
+  cipher_data:

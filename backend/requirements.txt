@@ -1,0 +1,14 @@
+fastapi==0.103.1
+uvicorn==0.23.2
+strawberry-graphql==0.211.1
+pymongo==4.5.0
+requests==2.31.0
+python-multipart==0.0.6
+pymilvus==2.3.1
+spacy==3.6.1
+pydantic==2.4.2
+jinja2==3.1.2
+python-dotenv==1.0.0
+mcp-client==0.1.0
+uuid==1.30
+tika==2.6.0
